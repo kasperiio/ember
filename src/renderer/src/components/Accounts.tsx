@@ -21,7 +21,8 @@ export function Accounts() {
     const off = api.on('log', ({ source, text }: { source: string; text: string }) => {
       if (source === 'cli-install' && busy) setLog((l) => ({ ...l, [busy]: (l[busy] ?? '') + text }))
     })
-    const t = setInterval(refreshCli, 8000)
+    // Each status check spawns the three CLIs (a few seconds of CPU); poll gently.
+    const t = setInterval(refreshCli, 30000)
     return () => {
       off()
       clearInterval(t)

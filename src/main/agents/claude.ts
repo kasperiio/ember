@@ -1,10 +1,14 @@
 // Claude Code headless adapter: stream-json in/out, permission prompts answered by Ember.
-import { readFile } from 'fs/promises'
-import { execFile } from 'child_process'
+import { readFile, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
+import { createHash } from 'crypto'
 import { locate, spawnCli } from '../cli'
 import { Collector, ndjson, toolKind, fileFromToolInput, type Agent } from './types'
 import { reportUsage, ProviderLimitError, looksLikeLimit } from '../usage'
+import { claudeMcpConfig } from '../mcp'
 import type { UsageWindow } from '../../shared/types'
 
 /** How Claude Code is signed in: "claude.ai" (Pro/Max subscription) or "console" (API credits). */
@@ -75,12 +79,104 @@ function recordRateLimit(info: any, plan?: string): number | undefined {
   return info.status === 'rejected' ? (info.resetsAt ? info.resetsAt * 1000 : undefined) : undefined
 }
 
+const fmtK = (n?: number) => (n == null ? '?' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
+
+/**
+ * Ask Claude Code to compact a resumed session (`/compact` over stream-json). Resolves with the
+ * token counts before and after, or null if nothing happened. The session id stays the same.
+ */
+export async function compactClaude(sessionId: string, cwd: string): Promise<{ pre: number; post: number } | null> {
+  const exe = await locate('claude')
+  if (!exe) throw new Error('Claude Code is not installed.')
+  // No tool restriction flag: an empty `--tools ""` argument is dropped by spawn and Claude Code then errors.
+  const proc = spawnCli(exe, ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose', '--resume', sessionId, '--permission-mode', 'plan'], { cwd })
+  proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '/compact' }] } }) + '\n')
+  let out: { pre: number; post: number } | null = null
+  let stderr = ''
+  proc.stdout.on(
+    'data',
+    ndjson((obj) => {
+      if (!obj) return
+      if (obj.type === 'system' && obj.subtype === 'compact_boundary') out = { pre: obj.compact_metadata?.pre_tokens ?? 0, post: obj.compact_metadata?.post_tokens ?? 0 }
+      if (obj.type === 'result') proc.stdin.end()
+    })
+  )
+  proc.stderr.on('data', (d) => (stderr += d.toString()))
+  const timer = setTimeout(() => proc.kill(), 180_000)
+  await new Promise<void>((resolve) => {
+    proc.on('exit', () => resolve())
+    proc.on('error', () => resolve())
+  })
+  clearTimeout(timer)
+  if (!out && /error|not found|no conversation/i.test(stderr)) throw new Error(stderr.trim().slice(-500))
+  return out
+}
+
 const MODE: Record<string, string> = {
   auto: 'auto',
   manual: 'manual',
   acceptEdits: 'acceptEdits',
   plan: 'plan',
   bypass: 'bypassPermissions'
+}
+
+// ---- warm processes -------------------------------------------------------------------------
+// Starting Claude Code costs ~1.7 s before the first request (loading, MCP servers, resuming the
+// transcript). stream-json input mode accepts many user messages on one process, so Ember keeps one
+// process per session alive between turns and only respawns when its arguments change.
+interface WarmProc {
+  proc: ChildProcess
+  fingerprint: string
+  sink: ((obj: any) => void) | null
+  stderr: string
+  exited: boolean
+  idle?: NodeJS.Timeout
+  onExit: Set<() => void>
+}
+const warm = new Map<string, WarmProc>()
+const WARM_IDLE_MS = 10 * 60_000
+
+/** Kill the kept process of an Ember session (after compaction, rewind, or when the user stops a turn). */
+export function dropWarmClaude(emberSessionId: string): void {
+  const w = warm.get(emberSessionId)
+  if (!w) return
+  warm.delete(emberSessionId)
+  if (w.idle) clearTimeout(w.idle)
+  if (!w.exited) {
+    try {
+      w.proc.stdin?.end()
+    } catch {
+      // ignore
+    }
+    setTimeout(() => w.proc.kill(), 1500)
+  }
+}
+
+export function dropAllWarmClaude(): void {
+  for (const id of [...warm.keys()]) dropWarmClaude(id)
+}
+
+function acquireWarm(emberSessionId: string, fingerprint: string, spawnFn: () => ChildProcess): WarmProc {
+  const existing = warm.get(emberSessionId)
+  if (existing && !existing.exited && existing.fingerprint === fingerprint) {
+    if (existing.idle) clearTimeout(existing.idle)
+    existing.idle = undefined
+    return existing
+  }
+  if (existing) dropWarmClaude(emberSessionId)
+  const proc = spawnFn()
+  const w: WarmProc = { proc, fingerprint, sink: null, stderr: '', exited: false, onExit: new Set() }
+  proc.stdout?.on('data', ndjson((obj) => obj && w.sink?.(obj)))
+  proc.stderr?.on('data', (d) => (w.stderr = (w.stderr + d.toString()).slice(-20000)))
+  const done = () => {
+    w.exited = true
+    if (warm.get(emberSessionId) === w) warm.delete(emberSessionId)
+    for (const f of w.onExit) f()
+  }
+  proc.on('exit', done)
+  proc.on('error', done)
+  warm.set(emberSessionId, w)
+  return w
 }
 
 export const claudeAgent: Agent = async (input) => {
@@ -107,23 +203,40 @@ export const claudeAgent: Agent = async (input) => {
     MODE[input.mode] ?? 'manual'
   ]
   const resumeId = session.providerSessions.claude
-  if (resumeId) args.push('--resume', resumeId)
   if (input.model.model) args.push('--model', input.model.model)
-  if (input.effort) args.push('--effort', input.effort)
-  if (input.system) args.push('--append-system-prompt', input.system)
+  // Effort is the only thinking control on current models (thinking cannot be switched off on Haiku/Sonnet/Opus 5.5
+  // and Fable). "medium" is left to Claude Code's own per-model default; low is noticeably faster for chat.
+  if (input.effort && input.effort !== 'medium') args.push('--effort', input.effort)
+  // Via a file: an npm-installed claude.cmd goes through cmd.exe, which cuts a multi-line argument (and every flag after it) at the first newline.
+  if (input.system) {
+    const file = join(tmpdir(), `ember-system-${session.id}.md`)
+    await writeFile(file, input.system)
+    args.push('--append-system-prompt-file', file)
+  }
+  const mcpConfig = claudeMcpConfig(session.id)
+  if (mcpConfig) args.push('--mcp-config', mcpConfig)
   if (session.kind === 'chat') args.push('--tools', 'WebSearch,WebFetch,Read')
 
-  const proc = spawnCli(exe, args, { cwd: input.cwd, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } })
+  // Reuse the kept process when nothing about the invocation changed (model, mode, effort, system prompt, cwd).
+  const fingerprint = JSON.stringify([args, input.cwd, createHash('sha1').update(input.system ?? '').digest('hex')])
+  const w = acquireWarm(session.id, fingerprint, () => {
+    const spawnArgs = resumeId ? [...args, '--resume', resumeId] : args
+    return spawnCli(exe, spawnArgs, { cwd: input.cwd, env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } })
+  })
+  const proc = w.proc
   let sessionId = resumeId
   let stats: any = undefined
-  let stderr = ''
   let finished = false
+  let finishTurn!: () => void
+  const turnDone = new Promise<void>((r) => (finishTurn = r))
+  w.onExit.add(finishTurn)
   let limitedUntil: number | undefined
   let limitReason = ''
+  let lastCallUsage: any
   const pendingTools = new Map<string, { name: string; input: any }>()
 
   const send = (obj: unknown) => {
-    if (!proc.stdin.destroyed) proc.stdin.write(JSON.stringify(obj) + '\n')
+    if (proc.stdin && !proc.stdin.destroyed) proc.stdin.write(JSON.stringify(obj) + '\n')
   }
 
   // Build the user message with attachments as content blocks.
@@ -136,18 +249,22 @@ export const claudeAgent: Agent = async (input) => {
   }
   const fileNotes = input.attachments.filter((a) => !a.mime.startsWith('image/')).map((a) => `Attached file: ${a.path}`)
   content.push({ type: 'text', text: [input.prompt, ...fileNotes].join('\n\n') })
-  send({ type: 'user', message: { role: 'user', content } })
-
-  const onAbort = () => {
-    proc.kill()
-  }
+  const onAbort = () => dropWarmClaude(session.id)
   signal.addEventListener('abort', onAbort, { once: true })
 
-  const handle = ndjson(async (obj) => {
-    if (!obj) return
+  const onObj = async (obj: any) => {
     switch (obj.type) {
       case 'system':
         if (obj.subtype === 'init' && obj.session_id) sessionId = obj.session_id
+        if (obj.subtype === 'status' && obj.status === 'compacting') c.status('Claude is compacting its context...')
+        // Thinking content is redacted in headless mode, but the token counter shows that work is happening.
+        if (obj.subtype === 'thinking_tokens' && typeof obj.estimated_tokens === 'number')
+          c.status(`Claude is thinking… ~${fmtK(obj.estimated_tokens)} tokens${input.effort !== 'low' ? ' (Effort: low answers faster)' : ''}`)
+        if (obj.subtype === 'compact_boundary') {
+          const m = obj.compact_metadata ?? {}
+          c.status(`Claude compacted its context: ${fmtK(m.pre_tokens)} → ${fmtK(m.post_tokens)} tokens`)
+          lastCallUsage = { input_tokens: m.post_tokens ?? 0 }
+        }
         break
       case 'stream_event': {
         const ev = obj.event
@@ -158,6 +275,8 @@ export const claudeAgent: Agent = async (input) => {
         break
       }
       case 'assistant': {
+        // Each assistant message carries the usage of its own model call; the latest one is the context in use.
+        if (obj.message?.usage) lastCallUsage = obj.message.usage
         for (const block of obj.message?.content ?? []) {
           if (block.type === 'tool_use') {
             pendingTools.set(block.id, { name: block.name, input: block.input })
@@ -216,8 +335,11 @@ export const claudeAgent: Agent = async (input) => {
         }
         {
           const u = obj.usage ?? {}
-          // Context in use = everything the last request sent: fresh input plus what was read from / written to cache.
-          const contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+          // result.usage is summed over every model call of the turn, so for the context in use take the
+          // LAST call only: everything it sent = fresh input + cache reads + cache writes.
+          const iterations: any[] = Array.isArray(u.iterations) ? u.iterations.filter((it: any) => it?.type === 'message') : []
+          const last = lastCallUsage ?? iterations[iterations.length - 1] ?? u
+          const contextTokens = (last.input_tokens ?? 0) + (last.cache_read_input_tokens ?? 0) + (last.cache_creation_input_tokens ?? 0)
           const mu = Object.values<any>(obj.modelUsage ?? {})[0]
           stats = {
             inputTokens: u.input_tokens,
@@ -232,27 +354,26 @@ export const claudeAgent: Agent = async (input) => {
           const msg = obj.result || obj.error || obj.subtype
           if (!c.text) c.textDelta(String(msg ?? 'Claude Code returned an error.'))
         }
-        proc.stdin.end()
+        finishTurn()
         break
       }
       default:
         break
     }
-  })
+  }
 
-  proc.stdout.on('data', handle)
-  proc.stderr.on('data', (d) => {
-    stderr += d.toString()
-  })
-
-  await new Promise<void>((resolve) => {
-    proc.on('exit', () => resolve())
-    proc.on('error', () => resolve())
-  })
+  // Attach this turn to the process, then send the message (init events of a fresh process arrive after this).
+  w.sink = (obj) => void onObj(obj)
+  send({ type: 'user', message: { role: 'user', content } })
+  await turnDone
+  w.sink = null
+  w.onExit.delete(finishTurn)
   signal.removeEventListener('abort', onAbort)
+  // Keep the process for the next turn; let it go after a while so idle sessions don't pile up.
+  if (!w.exited && warm.get(session.id) === w) w.idle = setTimeout(() => dropWarmClaude(session.id), WARM_IDLE_MS)
 
   if (!finished && !signal.aborted) {
-    const msg = stderr.trim() || 'Claude Code exited without a result.'
+    const msg = w.stderr.trim() || 'Claude Code exited without a result.'
     if (/not logged in|authentication|login|unauthori/i.test(msg)) throw new Error('Claude Code is not signed in. Open Accounts and sign in with your Claude subscription.')
     throw new Error(msg.slice(-2000))
   }

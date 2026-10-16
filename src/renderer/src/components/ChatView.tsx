@@ -55,6 +55,7 @@ export function ChatView() {
   const approvals = allApprovals.filter((a) => a.sessionId === current.id)
   const modules = useStore((s) => s.modules)
   const settings = useStore((s) => s.settings)
+  const statusMap = useStore((s) => s.status)
   const participantMap = useStore((s) => s.participants)
   const participants = participantMap[current.id] ?? NONE
   const listRef = useRef<HTMLDivElement>(null)
@@ -171,6 +172,7 @@ export function ChatView() {
               workspace={current.workspace}
               onRewind={m.role === 'user' && current.sharing?.role !== 'guest' ? (what) => rewind(m.id, what) : undefined}
               me={settings?.displayName}
+              statusText={busy && i === current.messages.length - 1 ? statusMap[current.id] : undefined}
             />
           ))}
           {lastLimit && !busy && <LimitCard limit={lastLimit} onContinue={continueElsewhere} />}

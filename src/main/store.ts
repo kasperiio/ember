@@ -3,7 +3,7 @@ import { promises as fs } from 'fs'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import type { AiModule, Session, SessionSummary, Settings } from '../shared/types'
+import type { AiModule, McpServer, Session, SessionSummary, Settings } from '../shared/types'
 
 const dataDir = () => join(app.getPath('userData'), 'data')
 const sessionsDir = () => join(dataDir(), 'sessions')
@@ -25,9 +25,11 @@ export const defaultSettings = (): Settings => ({
   defaultModel: { provider: 'ollama', model: '' },
   defaultMode: 'auto',
   defaultEffort: 'medium',
+  defaultChatEffort: 'low',
   selfCheck: true,
   selfCheckRetries: 3,
   webSearch: true,
+  emberAware: true,
   scratchRoot: join(app.getPath('documents'), 'Ember Projects'),
   keepInTray: true,
   unloadOnClose: true
@@ -105,7 +107,7 @@ export function newSession(init: Partial<Session> & Pick<Session, 'kind'>): Sess
     id: randomUUID(),
     title: init.kind === 'code' ? 'New coding session' : 'New chat',
     model: st.defaultModel,
-    effort: st.defaultEffort,
+    effort: init.kind === 'chat' ? st.defaultChatEffort : st.defaultEffort,
     mode: st.defaultMode,
     messages: [],
     providerSessions: {},
@@ -147,6 +149,24 @@ export function listModules(): AiModule[] {
 export function saveModules(mods: AiModule[]): void {
   ensure()
   writeFileSync(join(dataDir(), 'modules.json'), JSON.stringify(mods, null, 2))
+}
+
+// ---------- MCP servers ----------
+
+export function listMcpServers(): McpServer[] {
+  ensure()
+  const file = join(dataDir(), 'mcp.json')
+  if (!existsSync(file)) return []
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return []
+  }
+}
+
+export function saveMcpServers(list: McpServer[]): void {
+  ensure()
+  writeFileSync(join(dataDir(), 'mcp.json'), JSON.stringify(list, null, 2))
 }
 
 export function attachmentsDir(): string {

@@ -1,5 +1,5 @@
 import type {
-  AiModule, ApprovalRequest, Attachment, CheckCommand, CliStatus, FileEntry, Hardware, ModelRecommendation,
+  AiModule, ApprovalRequest, McpServer, McpTestResult, Attachment, CheckCommand, CliStatus, FileEntry, Hardware, ModelRecommendation,
   OllamaModel, OllamaRunning, Participant, ProviderUsage, SearchHit, Session, SessionSummary, Settings
 } from '../../../shared/types'
 
@@ -26,6 +26,11 @@ export const api = {
   approval: { answer: (id: string, ok: boolean) => inv<void>('approval:answer', id, ok) },
   attachments: { pick: () => inv<Attachment[]>('attachments:pick'), import: (paths: string[]) => inv<Attachment[]>('attachments:import', paths) },
   modules: { list: () => inv<AiModule[]>('modules:list'), save: (m: AiModule[]) => inv<void>('modules:save', m) },
+  mcp: {
+    list: () => inv<McpServer[]>('mcp:list'),
+    save: (l: McpServer[]) => inv<void>('mcp:save', l),
+    test: (s: McpServer) => inv<McpTestResult>('mcp:test', s)
+  },
   ollama: {
     status: () => inv<{ ok: boolean; version?: string }>('ollama:status'),
     models: () => inv<OllamaModel[]>('ollama:models'),

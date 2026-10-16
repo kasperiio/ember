@@ -126,6 +126,26 @@ export interface AiModule {
   color: string
 }
 
+/** An MCP server the user added; Ember hands it to every provider (and is the MCP client for local models). */
+export interface McpServer {
+  id: string
+  /** Display name; its slug names the server for the providers (tools appear as e.g. mcp__<slug>__<tool>). */
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'http'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+}
+
+export interface McpTestResult {
+  ok: boolean
+  tools: { name: string; description?: string }[]
+  error?: string
+}
+
 export interface Settings {
   theme: Theme
   displayName: string
@@ -133,9 +153,13 @@ export interface Settings {
   defaultModel: ModelRef
   defaultMode: PermissionMode
   defaultEffort: Effort
+  /** Effort for new chats; low keeps replies snappy, since thinking cannot be disabled on current Claude models. */
+  defaultChatEffort: Effort
   selfCheck: boolean
   selfCheckRetries: number
   webSearch: boolean
+  /** Tell the AI about Ember (modules, this PC, local models) so it can propose modules and models. */
+  emberAware: boolean
   scratchRoot: string
   keepInTray: boolean
   unloadOnClose: boolean

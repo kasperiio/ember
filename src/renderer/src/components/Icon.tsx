@@ -36,6 +36,7 @@ const PATHS: Record<string, string> = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   flame: 'M12 3c1 4 6 6.5 6 11.5a6 6 0 0 1-12 0c0-3 1.5-4.5 2.5-6.5 1 1.5 1.5 2.5 2 4 1-3 1.5-5.5 1.5-9z',
   archive:'M3 4h18v4H3zM5 8v12h14V8M10 12h4',
+  plug: 'M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4',
 }
 
 export type IconName = keyof typeof PATHS

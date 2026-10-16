@@ -8,6 +8,7 @@ import { showModel } from '../ollama'
 import { webSearch, fetchUrlText } from './web'
 import { localBackend, remoteBackend, type ToolBackend } from '../tools'
 import { Collector, type Agent, type AgentInput } from './types'
+import { localTools } from '../mcp'
 
 function makeTools(input: AgentInput, c: Collector) {
   const readOnly = input.mode === 'plan'
@@ -94,6 +95,19 @@ function makeTools(input: AgentInput, c: Collector) {
   return tools
 }
 
+/** The user's MCP servers' tools, approved like any other non-edit, non-command tool. Plan mode allows read-only ones. */
+function mcpTools(input: AgentInput, c: Collector) {
+  return localTools(
+    async (title, detail, readOnly) => {
+      if (input.mode === 'plan') return readOnly ? null : 'Denied: this session is in Plan mode (read-only).'
+      const { needsApproval } = await import('../permissions')
+      if (!needsApproval(input.mode, 'other')) return null
+      return (await input.approve('other', title, detail)) ? null : 'Denied by the user.'
+    },
+    (s) => c.status(s)
+  )
+}
+
 /** Transcript line for a message, labelled by author when the session is shared. */
 export function labelled(m: { author?: string; content: string }, fallback: string): string {
   return m.author ? `[${m.author}]: ${m.content}` : fallback === 'none' ? m.content : `[${fallback}]: ${m.content}`
@@ -143,7 +157,7 @@ export const localAgent: Agent = async (input) => {
   }
   messages.push({ role: 'user', content: userContent })
 
-  const tools = supportsTools ? makeTools(input, c) : undefined
+  const tools = supportsTools ? { ...makeTools(input, c), ...(await mcpTools(input, c)) } : undefined
   const started = Date.now()
   let usage: any
   let outTokens = 0

@@ -238,7 +238,7 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
           {ctx && (
             <span
               className={'ctxmeter' + (ctx.pct >= 90 ? ' err' : ctx.pct >= 75 ? ' warn' : '')}
-              title={`Context window: ${ctx.used.toLocaleString()} of ${ctx.limit.toLocaleString()} tokens in use (${ctx.pct}%).${ctx.pct >= 75 ? (current.model.provider === 'ollama' ? ' Ember condenses older messages automatically near the limit; /compact does it now.' : ' The provider tool compacts its own context automatically.') : ''}`}
+              title={`Context window: ${ctx.used.toLocaleString()} of ${ctx.limit.toLocaleString()} tokens in use (${ctx.pct}%).${ctx.pct >= 75 ? (current.model.provider === 'ollama' ? ' Ember condenses older messages automatically near the limit; /compact does it now.' : current.model.provider === 'claude' ? ' Claude Code compacts automatically near the limit; /compact does it now.' : ' The provider tool compacts its own context automatically; /compact starts a fresh provider conversation.') : ''}`}
             >
               <span className="meter"><i style={{ width: ctx.pct + '%' }} /></span>
               <span>{ctx.pct}% ctx</span>

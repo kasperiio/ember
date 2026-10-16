@@ -6,6 +6,7 @@ import { app, type BrowserWindow } from 'electron'
 import type { AgentEvent, Attachment, ChatMessage, Session } from '../shared/types'
 import { getSettings, listModules, loadSession, saveSession } from './store'
 import { projectInstructions } from './workspace'
+import { emberContext } from './ember'
 import { detectChecks, runChecks } from './checks'
 import * as checkpoints from './checkpoints'
 import * as permissions from './permissions'
@@ -132,7 +133,8 @@ export async function runTurn(sessionId: string, prompt: string, attachments: At
     const model = mod?.model ?? session.model
     const effort = mod?.effort ?? session.effort
     const mode = mod?.mode ?? session.mode
-    const sys = [session.workspace ? projectInstructions(session.workspace) : '', mod ? `# ${mod.name}\n${mod.instructions}` : ''].filter(Boolean).join('\n\n')
+    const ember = settings.emberAware ? await emberContext().catch(() => '') : ''
+    const sys = [ember, session.workspace ? projectInstructions(session.workspace) : '', mod ? `# ${mod.name}\n${mod.instructions}` : ''].filter(Boolean).join('\n\n')
 
     // CLI providers keep their own conversation; hand them what other participants said meanwhile.
     let turnPrompt = prompt
@@ -265,10 +267,21 @@ ${turnPrompt}`
 export async function compact(sessionId: string): Promise<Session | null> {
   const session = await loadSession(sessionId)
   if (!session) return null
-  if (session.model.provider !== 'ollama') {
-    // CLIs manage their own context; starting a fresh provider session is the equivalent.
+  if (session.model.provider === 'claude' && session.providerSessions.claude) {
+    // Claude Code compacts its own conversation in place; the session id survives.
+    const { compactClaude, dropWarmClaude } = await import('./agents/claude')
+    dropWarmClaude(session.id) // the kept process must reload the compacted transcript
+    const r = await compactClaude(session.providerSessions.claude, scratchCwd(session))
+    const fmtK = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
+    session.messages.push({ id: randomUUID(), role: 'system', content: r ? `Claude compacted its context: ${fmtK(r.pre)} → ${fmtK(r.post)} tokens.` : 'Claude reported nothing to compact.', createdAt: Date.now() })
+    // Make the context meter reflect the new size right away.
+    const lastAsst = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.stats?.contextTokens)
+    if (r && lastAsst?.stats) lastAsst.stats = { ...lastAsst.stats, contextTokens: r.post }
+  } else if (session.model.provider !== 'ollama') {
+    // Codex and Antigravity manage their own context; starting a fresh provider conversation is the equivalent.
     session.providerSessions = {}
-    session.messages.push({ id: randomUUID(), role: 'system', content: 'Context reset for the provider. The next message starts a fresh provider session.', createdAt: Date.now() })
+    ;(await import('./agents/claude')).dropWarmClaude(session.id)
+    session.messages.push({ id: randomUUID(), role: 'system', content: 'Context reset for the provider. The next message starts a fresh provider conversation.', createdAt: Date.now() })
   } else {
     const transcript = session.messages.map((m) => `${m.role}: ${m.content}`).join('\n\n')
     session.notes = await summarise(session.model.model, transcript)
@@ -294,6 +307,7 @@ export async function rewind(sessionId: string, messageId: string, what: 'files'
   if (what !== 'files') {
     session.messages = session.messages.slice(0, idx)
     session.providerSessions = {} // provider conversations cannot be truncated; start fresh
+    ;(await import('./agents/claude')).dropWarmClaude(session.id)
   }
   await saveSession(session)
   sharing.broadcastSession(session)

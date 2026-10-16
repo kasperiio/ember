@@ -5,12 +5,13 @@ import { api } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { ChatMessage, ToolCall } from '../../../shared/types'
 import { Icon } from './Icon'
+import { EmberCard } from './EmberCard'
 
 function fmt(n?: number): string {
   return n == null ? '' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
 }
 
-export const Message = memo(function Message({ msg, streaming, workspace, onRewind, me }: { msg: ChatMessage; streaming: boolean; workspace?: string; onRewind?: (what: 'files' | 'conversation' | 'both') => void; me?: string }) {
+export const Message = memo(function Message({ msg, streaming, workspace, onRewind, me, statusText }: { msg: ChatMessage; streaming: boolean; workspace?: string; onRewind?: (what: 'files' | 'conversation' | 'both') => void; me?: string; statusText?: string }) {
   const [rewindOpen, setRewindOpen] = useState(false)
   // Claude reports an API-equivalent cost even on a Pro/Max plan; only show dollars when it is billed per use.
   const claudeBilled = useStore((s) => s.cli.find((c) => c.id === 'claude')?.plan === 'API credits')
@@ -60,12 +61,24 @@ export const Message = memo(function Message({ msg, streaming, workspace, onRewi
       {msg.toolCalls?.map((t) => <Tool key={t.id} t={t} />)}
       {msg.content ? (
         <div className={'body' + (streaming ? ' cursor' : '')}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} onClick={(e) => { e.preventDefault(); if (href) api.openExternal(href) }}>{children}</a> }}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children }) => <a href={href} onClick={(e) => { e.preventDefault(); if (href) api.openExternal(href) }}>{children}</a>,
+              // ```ember-module / ember-model / ember-mcp blocks are proposals from the AI; render them as action cards.
+              pre: ({ node, children }) => {
+                const code: any = node?.children[0]
+                const lang = /language-(ember-(?:module|model|mcp))/.exec(String(code?.properties?.className ?? ''))?.[1]
+                if (!lang) return <pre>{children}</pre>
+                return <EmberCard lang={lang} code={code.children.map((c: any) => c.value ?? '').join('')} streaming={streaming} />
+              }
+            }}
+          >
             {msg.content}
           </ReactMarkdown>
         </div>
       ) : streaming && !msg.toolCalls?.length && !msg.reasoning ? (
-        <div className="muted cursor">Thinking</div>
+        <div className="muted cursor">{statusText || 'Thinking'}</div>
       ) : null}
       {msg.selfCheck && (
         <details className="selfcheck" open={!msg.selfCheck.ok}>

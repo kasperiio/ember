@@ -6,6 +6,7 @@ import { SessionView } from './components/SessionView'
 import { Discover } from './components/Discover'
 import { Accounts } from './components/Accounts'
 import { Modules } from './components/Modules'
+import { McpServers } from './components/McpServers'
 import { SettingsPage } from './components/SettingsPage'
 import { StatusBar } from './components/StatusBar'
 import { ShareDialog, JoinDialog } from './components/ShareDialogs'
@@ -114,6 +115,7 @@ export function App() {
         {page === 'discover' && <Discover />}
         {page === 'accounts' && <Accounts />}
         {page === 'modules' && <Modules />}
+        {page === 'mcp' && <McpServers />}
         {page === 'settings' && <SettingsPage />}
       </div>
       <StatusBar />

@@ -19,9 +19,12 @@ export type HookHandler = (toolName: string, args: Record<string, any>) => Promi
 
 const HOOK_NAME = 'ember-approvals'
 const HOOKS_FILE = join(os.homedir(), '.gemini', 'config', 'hooks.json')
-// No quotes here: agy escapes them when it hands the command to `cmd /c`. The quoted
+// No double quotes here: agy escapes them when it hands the command to `cmd /c`. The quoted
 // invocation lives in the environment variable, which cmd expands before parsing.
-const HOOK_COMMAND = 'if defined EMBER_AGY_HOOK (%EMBER_AGY_HOOK%) else (echo {})'
+// agy requires a `decision` in every hook answer (an empty `{}` is treated as a denial with no
+// reason), so the fallback for agy processes not started by Ember must emit a real "allow"; the
+// JSON is produced by PowerShell so the command itself contains no double quotes.
+const HOOK_COMMAND = "if defined EMBER_AGY_HOOK (%EMBER_AGY_HOOK%) else (powershell -NoProfile -NonInteractive -Command ConvertTo-Json -Compress @{decision='allow'})"
 
 const SCRIPT = `// Written by Ember: forwards an Antigravity PreToolUse hook call to Ember and prints the decision.
 const http = require('http')

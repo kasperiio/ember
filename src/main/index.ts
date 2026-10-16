@@ -13,9 +13,10 @@ import * as runner from './runner'
 import * as terminal from './terminal'
 import * as sharing from './sharing'
 import * as usage from './usage'
+import * as mcp from './mcp'
 import { claudeAuth, claudePlanLabel } from './agents/claude'
 import { detectChecks, runChecks, missingRuntimes, runCommand } from './checks'
-import type { AiModule, Session, Settings } from '../shared/types'
+import type { AiModule, McpServer, Session, Settings } from '../shared/types'
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -129,13 +130,16 @@ app.whenReady().then(() => {
   applyTheme(store.getSettings().theme)
   createWindow()
   createTray()
+  mcp.syncAntigravity()
   app.on('activate', () => (BrowserWindow.getAllWindows().length === 0 ? createWindow() : win?.show()))
 })
 
 app.on('before-quit', () => {
   quitting = true
   terminal.killAll()
+  import('./agents/claude').then((m) => m.dropAllWarmClaude()).catch(() => undefined)
   sharing.stopAll()
+  mcp.closeAll()
   if (store.getSettings().unloadOnClose) ollama.unloadAll()
 })
 app.on('window-all-closed', () => {
@@ -204,6 +208,12 @@ function importAttachment(p: string) {
 // modules
 h('modules:list', () => store.listModules())
 h('modules:save', (_e, mods: AiModule[]) => store.saveModules(mods))
+h('mcp:list', () => store.listMcpServers())
+h('mcp:save', (_e, list: McpServer[]) => {
+  store.saveMcpServers(list)
+  mcp.onServersChanged()
+})
+h('mcp:test', (_e, server: McpServer) => mcp.test(server))
 
 // ollama
 h('ollama:status', () => ollama.ollamaAvailable())

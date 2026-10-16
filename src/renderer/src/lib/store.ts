@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react'
 import type { AiModule, ApprovalRequest, OllamaModel, OllamaRunning, Participant, ProviderUsage, Session, SessionSummary, Settings, CliStatus } from '../../../shared/types'
 import { api } from './api'
 
-export type Page = 'session' | 'discover' | 'accounts' | 'modules' | 'settings'
+export type Page = 'session' | 'discover' | 'accounts' | 'modules' | 'mcp' | 'settings'
 
 export interface State {
   settings: Settings | null

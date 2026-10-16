@@ -43,7 +43,10 @@ export function SettingsPage() {
         </select>
       </div>
       <div className="field inline"><label>Effort</label>
-        <select value={settings.defaultEffort} onChange={(e) => upd({ defaultEffort: e.target.value as Settings['defaultEffort'] })}>
+        <select value={settings.defaultChatEffort} onChange={(e) => upd({ defaultChatEffort: e.target.value as Settings['defaultEffort'] })} title="For new chats. Thinking cannot be switched off on current Claude models; low effort keeps replies fast." style={{ marginRight: 8 }}>
+          <option value="low">Chats: low (fast)</option><option value="medium">Chats: medium</option><option value="high">Chats: high</option>
+        </select>
+        <select value={settings.defaultEffort} onChange={(e) => upd({ defaultEffort: e.target.value as Settings['defaultEffort'] })} title="For new coding sessions.">
           <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
         </select>
       </div>
@@ -53,6 +56,8 @@ export function SettingsPage() {
       <div className="field inline"><label>Scratch projects folder</label>
         <div className="row"><span className="mono muted" style={{ fontSize: 12 }}>{settings.scratchRoot}</span><button className="small" onClick={async () => { const f = await api.ws.pickFolder(); if (f) upd({ scratchRoot: f }) }}>Change</button></div>
       </div>
+      <h2>Assistant</h2>
+      <div className="field inline"><label>Tell the AI about Ember (your modules, this PC, local models) so it can suggest modules and models</label><input type="checkbox" checked={settings.emberAware} onChange={(e) => upd({ emberAware: e.target.checked })} /></div>
       <h2>Internet research</h2>
       <div className="field inline"><label>Let local models search the web (only scrubbed search terms leave the PC)</label><input type="checkbox" checked={settings.webSearch} onChange={(e) => upd({ webSearch: e.target.checked })} /></div>
       <h2>Local models</h2>

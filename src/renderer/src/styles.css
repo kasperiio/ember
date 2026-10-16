@@ -102,6 +102,7 @@ h3 { font-size: 14px; margin: 12px 0 6px; }
 .msg.assistant .body { line-height: 1.55; }
 .msg.assistant .body p { margin: 0 0 10px; }
 .msg.assistant .body pre { margin: 8px 0; }
+.ember-card { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); }
 .msg.assistant .body table { border-collapse: collapse; margin: 8px 0; }
 .msg.assistant .body td, .msg.assistant .body th { border: 1px solid var(--border); padding: 4px 8px; }
 .msg.system { align-items: center; }

@@ -87,14 +87,15 @@ export const geminiAgent: Agent = async (input) => {
   if (!/-(low|medium|high|xhigh|max)$/.test(input.model.model)) args.push('--effort', input.effort)
   // Headless agy cannot prompt, so for Manual / Auto / Accept edits Ember lets agy run everything and
   // gates each tool call itself through a PreToolUse hook (see agyHook.ts).
-  let hook: { env: Record<string, string>; dispose: () => void } | null = null
+  // The hook is always opened: agy's hook contract requires a `decision`, so an agy process that runs
+  // Ember's shared hook entry without Ember's env would have every tool call denied. In plan / chat /
+  // bypass runs the handler simply allows everything (plan mode itself keeps those runs read-only).
+  const gated = session.kind !== 'chat' && input.mode !== 'plan' && input.mode !== 'bypass'
   if (session.kind === 'chat' || input.mode === 'plan') args.push('--mode', 'plan')
-  else {
-    args.push('--dangerously-skip-permissions')
-    if (input.mode !== 'bypass') hook = await openAgyHook((name, params) => decide(input, name, params))
-  }
+  else args.push('--dangerously-skip-permissions')
+  const hook = await openAgyHook((name, params) => (gated ? decide(input, name, params) : Promise.resolve({ decision: 'allow' as const })))
 
-  const proc = spawnCli(exe, args, { cwd: input.cwd, env: { NO_COLOR: '1', ...hook?.env } })
+  const proc = spawnCli(exe, args, { cwd: input.cwd, env: { NO_COLOR: "1", ...hook.env } })
   const notes: string[] = []
   for (const a of input.attachments) {
     if (a.mime.startsWith('image/')) notes.push(`Attached image (read it with your tools): ${a.path}`)
@@ -180,7 +181,7 @@ export const geminiAgent: Agent = async (input) => {
     proc.on('error', () => resolve())
   })
   signal.removeEventListener('abort', onAbort)
-  hook?.dispose()
+  hook.dispose()
   // Refresh the quota picture after every turn (cheap: /usage is answered locally by agy without a model call).
   if (!signal.aborted) refreshAgyUsage().catch(() => undefined)
   if (!done && !signal.aborted && !c.text) {

@@ -17,6 +17,7 @@
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@monaco-editor/react": "latest",
     "@xterm/addon-fit": "latest",
     "@xterm/xterm": "latest",

@@ -68,6 +68,7 @@ export function Sidebar() {
         {nav('discover', 'Discover local models', 'search')}
         {nav('accounts', 'Accounts', 'user')}
         {nav('modules', 'AI Modules', 'puzzle')}
+        {nav('mcp', 'MCP servers', 'plug')}
         {nav('settings', 'Settings', 'gear')}
       </div>
       {menu && <SessionMenu s={menu.s} x={menu.x} y={menu.y} invite onClose={() => setMenu(null)} />}

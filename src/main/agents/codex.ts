@@ -3,6 +3,7 @@
 // Auto and Accept-edits modes behave the same as with Claude.
 import { locate, spawnCli } from '../cli'
 import { needsApproval } from '../permissions'
+import { codexMcpConfig } from '../mcp'
 import { reportUsage, ProviderLimitError, looksLikeLimit } from '../usage'
 import type { UsageWindow } from '../../shared/types'
 import { Collector, ndjson, type Agent } from './types'
@@ -245,7 +246,8 @@ export const codexAgent: Agent = async (input) => {
       model: input.model.model || null,
       approvalPolicy,
       sandbox,
-      developerInstructions: input.system || null
+      developerInstructions: input.system || null,
+      config: codexMcpConfig()
     }
     let started: any = null
     if (threadId) started = await request('thread/resume', { threadId, ...threadParams }).catch(() => null)
