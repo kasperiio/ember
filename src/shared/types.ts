@@ -1,0 +1,213 @@
+// Shared types between main and renderer.
+
+export type ProviderId = 'ollama' | 'claude' | 'codex' | 'gemini'
+
+export type PermissionMode = 'auto' | 'manual' | 'acceptEdits' | 'plan' | 'bypass'
+
+export type Effort = 'low' | 'medium' | 'high'
+
+export type Theme = 'dark' | 'light' | 'system'
+
+export interface ModelRef {
+  provider: ProviderId
+  model: string // ollama model tag, or CLI model name ('' = CLI default)
+}
+
+export interface Attachment {
+  name: string
+  path: string // absolute path to a copy inside userData/attachments
+  mime: string
+  size: number
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  input: unknown
+  output?: string
+  status: 'running' | 'done' | 'error' | 'denied'
+  files?: string[] // files touched
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  /** Display name of the participant who wrote this (or whose AI wrote it) in a shared session. */
+  author?: string
+  participantId?: string
+  reasoning?: string
+  toolCalls?: ToolCall[]
+  attachments?: Attachment[]
+  model?: ModelRef
+  moduleId?: string
+  checkpoint?: string // git tree id taken before this (user) message
+  createdAt: number
+  stats?: { inputTokens?: number; outputTokens?: number; durationMs?: number; costUsd?: number; tokensPerSec?: number }
+  selfCheck?: { attempt: number; ok: boolean; output: string }
+  error?: string
+}
+
+export interface ProviderSessionIds {
+  claude?: string
+  codex?: string
+  gemini?: string
+}
+
+export interface Session {
+  id: string
+  kind: 'chat' | 'code'
+  title: string
+  workspace?: string // absolute folder for code sessions
+  model: ModelRef
+  effort: Effort
+  mode: PermissionMode
+  moduleId?: string
+  messages: ChatMessage[]
+  providerSessions: ProviderSessionIds
+  notes?: string // condensed memory of older messages (local provider)
+  sharing?: Sharing
+  archived?: boolean // hidden from the sidebar unless "Show archived" is on
+  createdAt: number
+  updatedAt: number
+}
+
+/** Shared-session state stored with a session. */
+export interface Sharing {
+  role: 'host' | 'guest'
+  /** Host: public (tunnel) URL guests connect to. Guest: the URL joined. */
+  url?: string
+  lanUrl?: string
+  key?: string
+  hostName?: string
+  active: boolean
+}
+
+export interface Participant {
+  id: string
+  name: string
+  role: 'host' | 'guest'
+  connected: boolean
+}
+
+/** One file edit a guest's AI wants the host to apply. */
+export interface EditProposal {
+  path: string
+  content: string
+}
+
+export interface SessionSummary {
+  id: string
+  kind: 'chat' | 'code'
+  title: string
+  workspace?: string
+  archived?: boolean
+  updatedAt: number
+}
+
+export interface AiModule {
+  id: string
+  name: string
+  instructions: string
+  model?: ModelRef
+  effort?: Effort
+  mode?: PermissionMode
+  color: string
+}
+
+export interface Settings {
+  theme: Theme
+  displayName: string
+  ollamaHost: string
+  defaultModel: ModelRef
+  defaultMode: PermissionMode
+  defaultEffort: Effort
+  selfCheck: boolean
+  selfCheckRetries: number
+  webSearch: boolean
+  scratchRoot: string
+  keepInTray: boolean
+  unloadOnClose: boolean
+}
+
+export interface OllamaModel {
+  name: string
+  size: number
+  parameterSize?: string
+  quantization?: string
+  family?: string
+  modifiedAt: string
+}
+
+export interface OllamaRunning {
+  name: string
+  sizeVram: number
+  size: number
+  expiresAt: string
+}
+
+export interface Hardware {
+  cpu: string
+  cores: number
+  ramGb: number
+  gpus: { name: string; vramGb: number; usedGb: number; vendor: 'nvidia' | 'amd' | 'intel' | 'unknown' }[]
+}
+
+export interface ModelRecommendation {
+  name: string
+  tag: string
+  sizeGb: number
+  why: string
+  fits: 'gpu' | 'ram' | 'no'
+  tools: boolean
+  vision: boolean
+  thinking: boolean
+}
+
+export interface CliStatus {
+  id: Exclude<ProviderId, 'ollama'>
+  installed: boolean
+  path?: string
+  version?: string
+  loggedIn: boolean | 'unknown'
+  account?: string
+  plan?: string // e.g. "Max plan" (Claude only for now)
+}
+
+export interface FileEntry {
+  name: string
+  path: string
+  isDir: boolean
+  gitStatus?: string // 'M' | 'A' | 'D' | '?' | ...
+}
+
+export interface SearchHit {
+  path: string
+  line: number
+  text: string
+}
+
+export interface ApprovalRequest {
+  id: string
+  sessionId: string
+  kind: 'edit' | 'command' | 'other'
+  title: string
+  detail: string
+  diff?: string
+}
+
+// Streaming events from an agent run (main -> renderer)
+export type AgentEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
+  | { type: 'tool-start'; id: string; name: string; input: unknown }
+  | { type: 'tool-end'; id: string; output: string; status: 'done' | 'error' | 'denied'; files?: string[] }
+  | { type: 'status'; text: string }
+  | { type: 'self-check'; attempt: number; ok: boolean; output: string }
+  | { type: 'done'; stats?: ChatMessage['stats'] }
+  | { type: 'error'; message: string }
+
+export interface CheckCommand {
+  label: string
+  cmd: string
+}

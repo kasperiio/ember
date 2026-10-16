@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "ember-dev", "runtimeExecutable": "npx", "runtimeArgs": ["electron-vite", "dev"], "port": 5173 }
+  ]
+}

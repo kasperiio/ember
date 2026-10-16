@@ -1,0 +1,35 @@
+appId: dev.kasperi.ember
+productName: Ember
+copyright: Copyright © 2026 Kasperi
+npmRebuild: false
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!node_modules/**/*.{md,map,ts}"
+asarUnpack:
+  - node_modules/node-pty/**
+extraResources:
+  # Third-party binaries shipped with the app (see scripts/fetch-binaries.mjs): cloudflared, Codex CLI, licences.
+  - from: resources/bin
+    to: bin
+    filter:
+      - "**/*"
+      - "!*.zip"
+      - "!codex-tmp/**"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  artifactName: Ember-Setup-${version}.exe
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+  shortcutName: Ember
+  runAfterFinish: true
