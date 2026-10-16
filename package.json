@@ -1,0 +1,47 @@
+{
+  "name": "ember",
+  "productName": "Ember",
+  "version": "0.1.0",
+  "description": "Chat and code with AI on your own PC - local models or your own API keys.",
+  "main": "./out/main/index.js",
+  "author": "Kasperi",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "node scripts/fetch-binaries.mjs && electron-vite build && electron-builder --win",
+    "fetch-binaries": "node scripts/fetch-binaries.mjs",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "latest",
+    "@xterm/addon-fit": "latest",
+    "@xterm/xterm": "latest",
+    "ai": "latest",
+    "ignore": "latest",
+    "monaco-editor": "^0.57.0",
+    "node-pty": "latest",
+    "ollama-ai-provider-v2": "^4.0.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-markdown": "latest",
+    "remark-gfm": "latest",
+    "ws": "^8.22.0",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "electron-vite": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

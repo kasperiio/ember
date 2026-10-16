@@ -1,0 +1,9 @@
+node_modules
+out
+dist
+*.log
+resources/bin/*.exe
+resources/bin/*.zip
+resources/bin/codex-tmp
+resources/bin/codex.version
+*.tsbuildinfo
