@@ -3,7 +3,7 @@
 // with their vendors' official native installers (no Node.js, no npm, no admin rights).
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, copyFileSync, writeFileSync, rmSync, renameSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, copyFileSync, writeFileSync, rmSync, renameSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
 import type { CliStatus } from '../shared/types'
@@ -148,7 +148,8 @@ export async function install(id: CliId, onLog: (s: string) => void): Promise<bo
     const res = await fetch('https://api.github.com/repos/openai/codex/releases/latest', { headers: { 'User-Agent': 'ember', Accept: 'application/vnd.github+json' } })
     if (!res.ok) throw new Error('GitHub: HTTP ' + res.status)
     const rel: any = await res.json()
-    const asset = rel.assets.find((a: any) => /x86_64-pc-windows-msvc\.exe\.zip$/.test(a.name))
+    // Exact name: the release also ships codex-app-server-* and other helper binaries with the same suffix.
+    const asset = rel.assets.find((a: any) => /^codex-x86_64-pc-windows-msvc\.exe\.zip$/.test(a.name))
     if (!asset) throw new Error('no Windows build in release ' + rel.tag_name)
     onLog(`Downloading ${asset.name} (${(asset.size / 1e6).toFixed(0)} MB)...\n`)
     const zipRes = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'ember' }, redirect: 'follow' })
@@ -159,11 +160,19 @@ export async function install(id: CliId, onLog: (s: string) => void): Promise<bo
     const tmp = join(dir, 'codex-tmp')
     rmSync(tmp, { recursive: true, force: true })
     await run('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath "${zip}" -DestinationPath "${tmp}" -Force`], { timeout: 120000 })
-    const exe = readdirSync(tmp).find((f) => f.endsWith('.exe'))
+    // The archive also contains helper executables; take the CLI by name, else the largest file.
+    const exes = readdirSync(tmp).filter((f) => f.endsWith('.exe'))
+    const exe = exes.find((f) => /^codex(-x86_64-pc-windows-msvc)?\.exe$/i.test(f)) ?? exes.sort((a, b) => statSync(join(tmp, b)).size - statSync(join(tmp, a)).size)[0]
     if (!exe) throw new Error('no exe in archive')
     const dest = join(dir, 'codex.exe')
     rmSync(dest, { force: true })
     renameSync(join(tmp, exe), dest)
+    // Keep the helper executables (sandbox setup, command runner, code-mode host) next to the CLI.
+    for (const f of exes) {
+      if (f === exe) continue
+      rmSync(join(dir, f), { force: true })
+      renameSync(join(tmp, f), join(dir, f))
+    }
     rmSync(tmp, { recursive: true, force: true })
     rmSync(zip, { force: true })
     onLog(`Installed Codex CLI ${rel.tag_name}.\n`)
