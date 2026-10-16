@@ -33,3 +33,9 @@ nsis:
   deleteAppDataOnUninstall: false
   shortcutName: Ember
   runAfterFinish: true
+# Release assets go to GitHub Releases (uploaded by the Release Please workflow); this also makes
+# electron-builder emit latest.yml for a future auto-updater.
+publish:
+  provider: github
+  owner: kasperiio
+  repo: ember

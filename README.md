@@ -1,5 +1,8 @@
 # Ember
 
+[![CI](https://github.com/kasperiio/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/kasperiio/ember/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kasperiio/ember?display_name=tag)](https://github.com/kasperiio/ember/releases/latest)
+
 Chat and code with AI on your own PC. Run free local models on your graphics card through Ollama, or use the Claude, ChatGPT or Google plans you already pay for. No API keys, no pay-per-use, no Ember account.
 
 Ember is a Windows desktop app (Electron + React + TypeScript).
@@ -52,6 +55,10 @@ npm run dev
 ```
 
 `npm run typecheck` checks both processes. `npm run dist` downloads the bundled binaries (`scripts/fetch-binaries.mjs`), builds, and produces `dist/Ember-Setup-<version>.exe` with electron-builder.
+
+### Releases
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `chore:` …). On every push to `master`, [Release Please](https://github.com/googleapis/release-please) maintains a release pull request with the next version and changelog. Merging that PR creates the tag and GitHub release, and the workflow then builds the installer on Windows and attaches `Ember-Setup-<version>.exe` to it. CI (typecheck + build) runs on every push and pull request.
 
 Development aids (ignored in packaged builds): `EMBER_SCREENSHOT=<file.png>` captures the window after start; `EMBER_AUTOMATION_PORT=<port>` exposes `POST /` (run JavaScript in the renderer) and `GET /shot` on 127.0.0.1 for UI testing.
 

@@ -1,0 +1,6 @@
+# Keep LF in the repository and the working copy; Windows tooling handles LF fine.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
+*.zip binary
