@@ -9,7 +9,7 @@ import { Modules } from './components/Modules'
 import { SettingsPage } from './components/SettingsPage'
 import { StatusBar } from './components/StatusBar'
 import { ShareDialog, JoinDialog } from './components/ShareDialogs'
-import type { Session, AgentEvent, ApprovalRequest, Participant } from '../../shared/types'
+import type { Session, AgentEvent, ApprovalRequest, Participant, ProviderUsage } from '../../shared/types'
 
 function applyTheme(theme: string): void {
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -72,6 +72,8 @@ export function App() {
               return { ...m, selfCheck: { attempt: ev.attempt, ok: ev.ok, output: ev.output } }
             case 'error':
               return { ...m, error: ev.message }
+            case 'limit':
+              return { ...m, limit: { provider: ev.provider, resetsAt: ev.resetsAt } }
             case 'done':
               return { ...m, stats: ev.stats ?? m.stats }
             default:
@@ -83,8 +85,12 @@ export function App() {
       api.on('approval:request', (req: ApprovalRequest) => set((s) => ({ approvals: [...s.approvals, req] }))),
       api.on('share:participants', ({ sessionId, participants }: { sessionId: string; participants: Participant[] }) => set((s) => ({ participants: { ...s.participants, [sessionId]: participants } }))),
       api.on('share:error', ({ message }: { message: string }) => set((s) => ({ status: { ...s.status, [s.current?.id ?? '']: 'Sharing: ' + message } }))),
+      api.on('usage:updated', (u: ProviderUsage[]) => set({ usage: u })),
       api.on('ollama:pull-progress', () => undefined)
     ]
+    api.usage.get().then((u) => set({ usage: u }))
+    // Antigravity only reports quota on request; ask once at startup (Claude and Codex report during turns).
+    api.usage.refresh().then((u) => set({ usage: u })).catch(() => undefined)
     const t = setInterval(() => refreshModels(), 15000)
     return () => {
       offs.forEach((f) => f())

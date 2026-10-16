@@ -10,6 +10,7 @@ import { detectChecks, runChecks } from './checks'
 import * as checkpoints from './checkpoints'
 import * as permissions from './permissions'
 import * as sharing from './sharing'
+import { ProviderLimitError } from './usage'
 import { claudeAgent } from './agents/claude'
 import { codexAgent } from './agents/codex'
 import { geminiAgent } from './agents/gemini'
@@ -141,6 +142,24 @@ export async function runTurn(sessionId: string, prompt: string, attachments: At
       turnPrompt = `${ctx ? `Messages from other participants in this shared session since your last reply:\n\n${ctx}\n\n` : ''}[${me}]: ${prompt}`
     }
 
+    // Switching to a CLI provider mid-conversation: it has no context yet, so hand it the conversation so far.
+    if (model.provider !== 'ollama' && !(session.providerSessions as any)[model.provider]) {
+      const prior = session.messages.filter((m) => m.id !== userMsg.id && (m.role === 'user' || m.role === 'assistant') && m.content)
+      if (prior.length) {
+        const transcript = prior
+          .slice(-40)
+          .map((m) => `${m.role === 'user' ? (m.author ?? 'User') : (m.author ?? 'Assistant')}: ${m.content.slice(0, 4000)}`)
+          .join('\n\n')
+        turnPrompt = `<conversation_so_far>
+This conversation started with another assistant; here is what was said before you joined.
+
+${transcript.slice(-60000)}
+</conversation_so_far>
+
+${turnPrompt}`
+      }
+    }
+
     // 3. run, with self-check retries
     let turnAttachments = attachments
     const maxAttempts = session.kind === 'code' && session.workspace && settings.selfCheck ? settings.selfCheckRetries + 1 : 1
@@ -203,6 +222,10 @@ export async function runTurn(sessionId: string, prompt: string, attachments: At
         emit(sessionId, { type: 'done', stats: out.stats }, asst.id)
       } catch (e: any) {
         asst.error = ac.signal.aborted ? 'Stopped.' : String(e?.message ?? e)
+        if (e instanceof ProviderLimitError) {
+          asst.limit = { provider: e.provider, resetsAt: e.resetsAt }
+          emit(sessionId, { type: 'limit', provider: e.provider, resetsAt: e.resetsAt, message: asst.error }, asst.id)
+        }
         emit(sessionId, { type: 'error', message: asst.error }, asst.id)
         await publish(true)
         if (isGuest) pushGuestAssistant(asst, true)
@@ -210,13 +233,22 @@ export async function runTurn(sessionId: string, prompt: string, attachments: At
       break
     }
 
-    // 4. long sessions: condense older messages into notes (local provider keeps full history itself)
-    if (model.provider === 'ollama' && session.messages.length > 40 && !shared) {
+    // 4. long sessions (local provider, which gets the full history from Ember): when the context window is
+    // getting full, condense the older half of the conversation into notes instead of dropping it.
+    // The CLI providers manage their own context and compact themselves.
+    const lastStats = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.stats?.contextTokens)?.stats
+    const contextFill = lastStats?.contextTokens && lastStats.contextLimit ? lastStats.contextTokens / lastStats.contextLimit : 0
+    if (model.provider === 'ollama' && !shared && (contextFill >= 0.8 || session.messages.length > 60)) {
       try {
-        const old = session.messages.slice(0, 20)
-        const transcript = old.map((m) => `${m.role}: ${m.content}`).join('\n\n')
+        emit(sessionId, { type: 'status', text: `Context ${Math.round(contextFill * 100)}% full; condensing older messages...` }, '')
+        const keep = Math.max(4, Math.floor(session.messages.length / 2))
+        const old = session.messages.slice(0, session.messages.length - keep)
+        const transcript = old.map((m) => `${m.author ?? m.role}: ${m.content}`).join('\n\n')
         session.notes = ((session.notes ?? '') + '\n' + (await summarise(model.model, transcript))).trim()
-        session.messages = session.messages.slice(20)
+        session.messages = [
+          { id: randomUUID(), role: 'system', content: `Condensed ${old.length} older messages into notes to free up context.`, createdAt: Date.now() },
+          ...session.messages.slice(-keep)
+        ]
         await saveSession(session)
       } catch {
         // keep going without compaction

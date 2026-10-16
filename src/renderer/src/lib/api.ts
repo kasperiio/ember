@@ -1,6 +1,6 @@
 import type {
   AiModule, ApprovalRequest, Attachment, CheckCommand, CliStatus, FileEntry, Hardware, ModelRecommendation,
-  OllamaModel, OllamaRunning, Participant, SearchHit, Session, SessionSummary, Settings
+  OllamaModel, OllamaRunning, Participant, ProviderUsage, SearchHit, Session, SessionSummary, Settings
 } from '../../../shared/types'
 
 const inv = <T>(ch: string, ...args: unknown[]) => window.ember.invoke(ch, ...args) as Promise<T>
@@ -71,6 +71,7 @@ export const api = {
     fileAt: (root: string, tree: string, rel: string) => inv<string | null>('ws:fileAt', root, tree, rel),
     diffSince: (root: string, tree: string, rel?: string) => inv<string>('ws:diffSince', root, tree, rel)
   },
+  usage: { get: () => inv<ProviderUsage[]>('usage:get'), refresh: () => inv<ProviderUsage[]>('usage:refresh') },
   share: {
     start: (id: string) => inv<{ url: string; lanUrl: string; key: string; tunnel: boolean }>('share:start', id),
     stop: (id: string) => inv<void>('share:stop', id),

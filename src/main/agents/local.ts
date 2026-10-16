@@ -111,6 +111,10 @@ export const localAgent: Agent = async (input) => {
   const supportsTools = caps.capabilities.includes('tools')
   const supportsVision = caps.capabilities.includes('vision')
   const supportsThinking = caps.capabilities.includes('thinking')
+  // Ollama defaults to a 4k context, far too small for coding. Ask for the model's own window, capped to keep
+  // GPU memory in check; this cap is also the window the context meter measures against.
+  const numCtx = Math.min((caps as any).contextLength ?? 8192, 32768)
+  let lastStepInput = 0
   const shared = !!session.sharing?.active
   const me = settings.displayName
 
@@ -154,7 +158,7 @@ export const localAgent: Agent = async (input) => {
       stopWhen: stepCountIs(40),
       abortSignal: signal,
       // Thinking models reason far better with thinking on; turning it off makes small models 'think' in plain text instead.
-      providerOptions: supportsThinking ? { ollama: { think: true } } : undefined
+      providerOptions: { ollama: { ...(supportsThinking ? { think: true } : {}), options: { num_ctx: numCtx } } }
     })
     let roundText = ''
     for await (const part of result.fullStream as AsyncIterable<any>) {
@@ -180,6 +184,10 @@ export const localAgent: Agent = async (input) => {
         case 'tool-error':
           c.toolEnd(part.toolCallId, String(part.error?.message ?? part.error), 'error')
           break
+        case 'finish-step':
+          // prompt size of the latest model call = how full the context is right now
+          if (part.usage?.inputTokens) lastStepInput = part.usage.inputTokens
+          break
         case 'finish':
           usage = part.totalUsage ?? part.usage
           outTokens = usage?.outputTokens ?? outTokens
@@ -202,7 +210,14 @@ export const localAgent: Agent = async (input) => {
 
   const durationMs = Date.now() - started
   return c.result({
-    stats: { inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens, durationMs, tokensPerSec: outTokens ? +((outTokens / durationMs) * 1000).toFixed(1) : undefined }
+    stats: {
+      inputTokens: usage?.inputTokens,
+      outputTokens: usage?.outputTokens,
+      durationMs,
+      tokensPerSec: outTokens ? +((outTokens / durationMs) * 1000).toFixed(1) : undefined,
+      contextTokens: (lastStepInput || usage?.inputTokens) ? (lastStepInput || usage?.inputTokens) + (usage?.outputTokens ?? 0) : undefined,
+      contextLimit: numCtx
+    }
   })
 }
 

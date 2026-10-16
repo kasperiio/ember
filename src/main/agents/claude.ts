@@ -4,6 +4,8 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { locate, spawnCli } from '../cli'
 import { Collector, ndjson, toolKind, fileFromToolInput, type Agent } from './types'
+import { reportUsage, ProviderLimitError, looksLikeLimit } from '../usage'
+import type { UsageWindow } from '../../shared/types'
 
 /** How Claude Code is signed in: "claude.ai" (Pro/Max subscription) or "console" (API credits). */
 export interface ClaudeAuth {
@@ -39,6 +41,38 @@ export function claudePlanLabel(a: ClaudeAuth): string | undefined {
   if (a.authMethod === 'console') return 'API credits'
   if (a.subscriptionType) return a.subscriptionType.charAt(0).toUpperCase() + a.subscriptionType.slice(1) + ' plan'
   return a.authMethod === 'claude.ai' ? 'subscription' : undefined
+}
+
+/**
+ * Claude Code names windows like five_hour, seven_day, seven_day_opus, seven_day_fable or
+ * seven_day_overage_included; the set varies by plan and by the model used. Label them all.
+ */
+function windowLabel(key: string): string {
+  const m = /^(five_hour|seven_day)(?:_(.+))?$/.exec(key)
+  if (!m) return key.replace(/_/g, ' ')
+  const base = m[1] === 'five_hour' ? '5-hour' : 'weekly'
+  if (!m[2]) return base
+  const qualifier = m[2].replace(/_/g, ' ').replace(/\b(opus|sonnet|haiku|fable)\b/g, (s) => s.charAt(0).toUpperCase() + s.slice(1))
+  return `${base} (${qualifier})`
+}
+
+/** Translate Claude Code's rate_limit_event into Ember's usage model. Returns the reset time if requests are rejected. */
+function recordRateLimit(info: any, plan?: string): number | undefined {
+  if (!info) return undefined
+  const windows: UsageWindow[] = []
+  const limitedType: string | undefined = info.status === 'rejected' ? info.rateLimitType : undefined
+  for (const [key, w] of Object.entries<any>(info.unifiedWindows ?? {})) {
+    const utilization = typeof w?.utilization === 'number' ? Math.round(w.utilization * 100) : undefined
+    const resetsAt = typeof w?.resetsAt === 'number' ? w.resetsAt * 1000 : undefined
+    const status: UsageWindow['status'] = key === limitedType || (utilization ?? 0) >= 100 ? 'limited' : (utilization ?? 0) >= 85 ? 'warning' : 'ok'
+    windows.push({ label: windowLabel(key), utilization, resetsAt, status })
+  }
+  if (!windows.length && info.rateLimitType) {
+    windows.push({ label: windowLabel(info.rateLimitType), resetsAt: info.resetsAt ? info.resetsAt * 1000 : undefined, status: info.status === 'rejected' ? 'limited' : info.status === 'allowed_warning' ? 'warning' : 'ok' })
+  }
+  const status = info.status === 'rejected' ? 'limited' : info.status === 'allowed_warning' ? 'warning' : undefined
+  reportUsage('claude', { windows, status, plan })
+  return info.status === 'rejected' ? (info.resetsAt ? info.resetsAt * 1000 : undefined) : undefined
 }
 
 const MODE: Record<string, string> = {
@@ -84,6 +118,8 @@ export const claudeAgent: Agent = async (input) => {
   let stats: any = undefined
   let stderr = ''
   let finished = false
+  let limitedUntil: number | undefined
+  let limitReason = ''
   const pendingTools = new Map<string, { name: string; input: any }>()
 
   const send = (obj: unknown) => {
@@ -163,14 +199,34 @@ export const claudeAgent: Agent = async (input) => {
         }
         break
       }
+      case 'rate_limit_event': {
+        const reset = recordRateLimit(obj.rate_limit_info, claudePlanLabel(await auth))
+        if (obj.rate_limit_info?.status === 'rejected') {
+          limitedUntil = reset ?? limitedUntil ?? 0
+          limitReason = 'Claude plan limit reached'
+        }
+        break
+      }
       case 'result': {
         finished = true
         if (obj.session_id) sessionId = obj.session_id
-        stats = {
-          inputTokens: obj.usage?.input_tokens,
-          outputTokens: obj.usage?.output_tokens,
-          durationMs: obj.duration_ms,
-          costUsd: obj.total_cost_usd
+        if (obj.api_error_status === 429 || (obj.is_error && looksLikeLimit(String(obj.result ?? obj.error ?? '')))) {
+          limitedUntil = limitedUntil ?? 0
+          limitReason = String(obj.result ?? obj.error ?? 'Claude refused the request because the plan limit is reached')
+        }
+        {
+          const u = obj.usage ?? {}
+          // Context in use = everything the last request sent: fresh input plus what was read from / written to cache.
+          const contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+          const mu = Object.values<any>(obj.modelUsage ?? {})[0]
+          stats = {
+            inputTokens: u.input_tokens,
+            outputTokens: u.output_tokens,
+            durationMs: obj.duration_ms,
+            costUsd: obj.total_cost_usd,
+            contextTokens: contextTokens || undefined,
+            contextLimit: mu?.contextWindow ?? 200_000
+          }
         }
         if (obj.is_error || obj.subtype !== 'success') {
           const msg = obj.result || obj.error || obj.subtype
@@ -199,6 +255,10 @@ export const claudeAgent: Agent = async (input) => {
     const msg = stderr.trim() || 'Claude Code exited without a result.'
     if (/not logged in|authentication|login|unauthori/i.test(msg)) throw new Error('Claude Code is not signed in. Open Accounts and sign in with your Claude subscription.')
     throw new Error(msg.slice(-2000))
+  }
+  if (limitedUntil !== undefined) {
+    reportUsage('claude', { status: 'limited' })
+    throw new ProviderLimitError('claude', limitReason, limitedUntil || undefined)
   }
   // total_cost_usd is only an API-equivalent estimate; on a subscription nothing is billed per turn.
   if (stats && (await auth).authMethod !== 'console') delete stats.costUsd

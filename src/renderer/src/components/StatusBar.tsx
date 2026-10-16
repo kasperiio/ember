@@ -1,14 +1,44 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useStore, refreshModels } from '../lib/store'
-import type { Hardware } from '../../../shared/types'
+import type { Hardware, ProviderUsage } from '../../../shared/types'
 import { Icon } from './Icon'
+
+const PROVIDER_SHORT: Record<string, string> = { claude: 'Claude', codex: 'ChatGPT', gemini: 'Antigravity', ollama: 'Local' }
+
+export function resetLabel(ms?: number): string {
+  if (!ms) return ''
+  const diff = ms - Date.now()
+  if (diff <= 0) return 'reset'
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  if (h >= 48) return `resets in ${Math.round(h / 24)} d`
+  return h > 0 ? `resets in ${h} h ${m} m` : `resets in ${m} m`
+}
+
+/** Compact "Claude 65% · wk 63%" chip with a tooltip listing every window and its reset time. */
+function UsageChip({ u }: { u: ProviderUsage }) {
+  const parts = u.windows.filter((w) => w.utilization != null)
+  if (!parts.length && u.status === 'ok') return null
+  // The chip shows the fullest window (the one that will bite first); the tooltip lists them all.
+  const top = [...parts].sort((a, b) => (b.utilization ?? 0) - (a.utilization ?? 0))[0]
+  const text = top ? `${top.label} ${top.utilization}%${parts.length > 1 ? ` (+${parts.length - 1})` : ''}` : ''
+  const title = [`${PROVIDER_SHORT[u.provider] ?? u.provider}${u.plan ? ' · ' + u.plan : ''}`, ...u.windows.map((w) => `${w.label}: ${w.utilization != null ? w.utilization + '% used' : w.status}${w.resetsAt ? ', ' + resetLabel(w.resetsAt) : ''}`)].join('\n')
+  const cls = u.status === 'limited' ? 'ico-err' : u.status === 'warning' ? 'ico-warn' : ''
+  return (
+    <span className={'usage ' + cls} title={title}>
+      {PROVIDER_SHORT[u.provider] ?? u.provider} {u.status === 'limited' ? 'limit reached' : text}
+      {top && <span className="meter"><i style={{ width: `${Math.min(100, top.utilization ?? 0)}%`, background: u.status === 'ok' ? undefined : 'var(--warn)' }} /></span>}
+    </span>
+  )
+}
 
 export function StatusBar() {
   const running = useStore((s) => s.running)
   const ollamaOk = useStore((s) => s.ollamaOk)
   const current = useStore((s) => s.current)
   const status = useStore((s) => s.status)
+  const usage = useStore((s) => s.usage)
   const [hw, setHw] = useState<Hardware | null>(null)
 
   useEffect(() => {
@@ -35,6 +65,9 @@ export function StatusBar() {
         </span>
       ))}
       {running.length > 1 && <span className="muted">{loadedGb.toFixed(1)} GB loaded</span>}
+      {usage.map((u) => (
+        <UsageChip key={u.provider} u={u} />
+      ))}
       <span className="grow" />
       {current && status[current.id] && <span>{status[current.id]}</span>}
     </div>

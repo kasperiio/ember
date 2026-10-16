@@ -12,6 +12,7 @@ import * as permissions from './permissions'
 import * as runner from './runner'
 import * as terminal from './terminal'
 import * as sharing from './sharing'
+import * as usage from './usage'
 import { claudeAuth, claudePlanLabel } from './agents/claude'
 import { detectChecks, runChecks, missingRuntimes, runCommand } from './checks'
 import type { AiModule, Session, Settings } from '../shared/types'
@@ -42,6 +43,7 @@ function createWindow(): void {
   runner.bindWindow(win)
   terminal.bindWindow(win)
   sharing.bindWindow(win)
+  usage.bindWindow(win)
   if (!app.isPackaged) win.webContents.on('console-message', (ev) => console.log(`[renderer:${ev.level}] ${ev.message} (${ev.sourceId}:${ev.lineNumber})`))
   win.on('ready-to-show', () => {
     win?.show()
@@ -262,6 +264,14 @@ h('ws:fileAt', (_e, root: string, tree: string, rel: string) => checkpoints.file
 h('ws:diffSince', (_e, root: string, tree: string, rel?: string) => checkpoints.diffSince(root, tree, rel))
 h('clipboard:write', (_e, text: string) => clipboard.writeText(text))
 h('shell:openExternal', (_e, url: string) => shell.openExternal(url))
+
+// usage
+h('usage:get', () => usage.getUsage())
+h('usage:refresh', async () => {
+  const { refreshAgyUsage } = await import('./agents/gemini')
+  await refreshAgyUsage().catch(() => undefined)
+  return usage.getUsage()
+})
 
 // shared sessions
 h('share:start', (_e, id: string) => sharing.startSharing(id))

@@ -43,9 +43,20 @@ export interface ChatMessage {
   moduleId?: string
   checkpoint?: string // git tree id taken before this (user) message
   createdAt: number
-  stats?: { inputTokens?: number; outputTokens?: number; durationMs?: number; costUsd?: number; tokensPerSec?: number }
+  stats?: {
+    inputTokens?: number
+    outputTokens?: number
+    durationMs?: number
+    costUsd?: number
+    tokensPerSec?: number
+    /** Tokens in the model's context at the last request (prompt incl. cached), and the model's window. */
+    contextTokens?: number
+    contextLimit?: number
+  }
   selfCheck?: { attempt: number; ok: boolean; output: string }
   error?: string
+  /** Set when the provider refused this turn because the plan limit is reached. */
+  limit?: { provider: ProviderId; resetsAt?: number }
 }
 
 export interface ProviderSessionIds {
@@ -164,6 +175,28 @@ export interface ModelRecommendation {
   thinking: boolean
 }
 
+/** Subscription usage / rate-limit state of a provider, as reported by its official CLI. */
+export interface ProviderUsage {
+  provider: ProviderId
+  /** 'ok' = below the warning threshold, 'warning' = near the limit, 'limited' = requests are being refused. */
+  status: 'ok' | 'warning' | 'limited'
+  windows: UsageWindow[]
+  /** Plan name, e.g. "Max plan". */
+  plan?: string
+  updatedAt: number
+  note?: string
+}
+
+export interface UsageWindow {
+  /** e.g. "5-hour", "weekly", "weekly (Opus)". */
+  label: string
+  /** 0-100, when known. */
+  utilization?: number
+  /** Epoch ms when the window resets, when known. */
+  resetsAt?: number
+  status: 'ok' | 'warning' | 'limited'
+}
+
 export interface CliStatus {
   id: Exclude<ProviderId, 'ollama'>
   installed: boolean
@@ -206,6 +239,8 @@ export type AgentEvent =
   | { type: 'self-check'; attempt: number; ok: boolean; output: string }
   | { type: 'done'; stats?: ChatMessage['stats'] }
   | { type: 'error'; message: string }
+  /** The provider refused the turn because the plan's limit is reached; the UI offers to continue elsewhere. */
+  | { type: 'limit'; provider: ProviderId; resetsAt?: number; message: string }
 
 export interface CheckCommand {
   label: string

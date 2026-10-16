@@ -1,14 +1,52 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { useStore, set, get, renameSession, modelLabel, refreshSessions } from '../lib/store'
+import { useStore, set, get, renameSession, modelLabel, refreshSessions, saveCurrent } from '../lib/store'
 import { Message } from './Message'
 import { Composer } from './Composer'
 import { Icon } from './Icon'
 import { SessionMenu } from './SessionMenu'
-import type { Attachment, ApprovalRequest, Participant } from '../../../shared/types'
+import { resetLabel } from './StatusBar'
+import type { Attachment, ApprovalRequest, ChatMessage, Participant, ProviderId } from '../../../shared/types'
 
 // Selectors passed to useStore must return existing references; a fresh [] per read would re-render forever.
 const NONE: Participant[] = []
+const PROVIDER_NAME: Record<string, string> = { claude: 'Claude', codex: 'ChatGPT', gemini: 'Google Antigravity', ollama: 'a local model' }
+
+/** Shown under a reply the provider refused because the plan limit is reached. */
+function LimitCard({ limit, onContinue }: { limit: NonNullable<ChatMessage['limit']>; onContinue: (provider: ProviderId, model: string) => void }) {
+  const cli = useStore((s) => s.cli)
+  const models = useStore((s) => s.models)
+  const cliModels = useStore((s) => s.cliModels)
+  const usage = useStore((s) => s.usage)
+  const others = (['claude', 'codex', 'gemini'] as const).filter((p) => p !== limit.provider && cli.find((c) => c.id === p)?.loggedIn === true && usage.find((u) => u.provider === p)?.status !== 'limited')
+  const [choice, setChoice] = useState<string>(others[0] ? others[0] + '|' : models[0] ? 'ollama|' + models[0].name : '')
+  return (
+    <div className="approval">
+      <div className="row">
+        <strong className="row" style={{ gap: 6 }}><Icon name="warn" />{PROVIDER_NAME[limit.provider]} has reached your plan's limit</strong>
+        <span className="muted">{limit.resetsAt ? resetLabel(limit.resetsAt) : 'try again later'}</span>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <span className="muted" style={{ fontSize: 12.5 }}>Continue this conversation with</span>
+        <select value={choice} onChange={(e) => setChoice(e.target.value)}>
+          {others.map((p) => (
+            <optgroup key={p} label={PROVIDER_NAME[p]}>
+              <option value={p + '|'}>{PROVIDER_NAME[p]} · default</option>
+              {(cliModels[p] ?? []).map((m) => <option key={m.id} value={p + '|' + m.id}>{PROVIDER_NAME[p]} · {m.label}</option>)}
+            </optgroup>
+          ))}
+          {models.length > 0 && (
+            <optgroup label="Local (Ollama)">
+              {models.map((m) => <option key={m.name} value={'ollama|' + m.name}>{m.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+        <button className="primary" disabled={!choice} onClick={() => { const [p, m] = choice.split('|'); onContinue(p as ProviderId, m) }}>Continue</button>
+        <span className="muted" style={{ fontSize: 12 }}>or wait for the reset and send again</span>
+      </div>
+    </div>
+  )
+}
 
 export function ChatView() {
   const current = useStore((s) => s.current)!
@@ -57,6 +95,16 @@ export function ChatView() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
 
   const mod = modules.find((m) => m.id === current.moduleId)
+
+  // The last assistant message hit a plan limit: offer to continue the same request on another provider.
+  const lastMsg = current.messages[current.messages.length - 1]
+  const lastLimit = lastMsg?.role === 'assistant' && lastMsg.limit ? lastMsg.limit : null
+  const continueElsewhere = async (provider: ProviderId, model: string) => {
+    const lastUser = [...current.messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    await saveCurrent({ model: { provider, model } })
+    send(lastUser.content, lastUser.attachments ?? [])
+  }
 
   return (
     <div className="chat">
@@ -125,6 +173,7 @@ export function ChatView() {
               me={settings?.displayName}
             />
           ))}
+          {lastLimit && !busy && <LimitCard limit={lastLimit} onContinue={continueElsewhere} />}
           {approvals.map((a) => (
             <div key={a.id} className="approval">
               <div className="row">

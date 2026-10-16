@@ -9,7 +9,7 @@ Ember is a Windows desktop app (Electron + React + TypeScript).
 
 ## How "bring your own AI" works
 
-Ember never asks for an API key. For cloud providers it drives each vendor's **official** command-line tool, which handles sign-in in your browser and keeps the token on your PC. Usage counts against your plan.
+Ember never asks for an API key and never calls pay-per-use API models. For cloud providers it drives each vendor's **official** command-line tool, which handles sign-in in your browser and keeps the token on your PC. Usage counts against your plan's limits, not against credits, and Ember shows how much of each plan's window you have used.
 
 | Provider | Tool Ember drives | Sign-in |
 |---|---|---|
@@ -25,11 +25,12 @@ The Accounts page installs the tools and opens the sign-in flow in an embedded t
 - **Chat**: streaming replies, collapsible reasoning for thinking models, effort control, file and image attachments, link reading (web pages, PDFs, YouTube transcripts) for local models, searchable history, slash commands (`/model`, `/mode`, `/effort`, `/module`, `/compact`, `/new`, `/check`, `/commit`).
 - **Internet research** for local models: the model asks, Ember searches DuckDuckGo. Only scrubbed search terms leave the PC (paths, URLs, emails and keys are removed). Models without tool support get host-assisted search.
 - **Code workspace**: open any folder or start a scratch project. File explorer with git status, Monaco editor with tabs, project search, embedded PowerShell terminals (node-pty), live view of files the AI writes, preview browser that picks up `localhost` URLs from the terminal. Reads `EMBER.md`, `AGENTS.md` or `CLAUDE.md` for project instructions.
-- **Permission modes**: Auto, Manual, Accept edits, Plan (read-only), Bypass. Claude Code supports Ember's approval prompts in full; Codex and Antigravity run headless so Manual mode skips actions that would need a prompt.
+- **Permission modes**: Auto, Manual, Accept edits, Plan (read-only), Bypass. All three providers ask for approval through Ember: Claude Code over its stdio permission protocol, Codex through `codex app-server` approval requests, and Antigravity CLI through a PreToolUse hook (`ember-approvals` in `~/.gemini/config/hooks.json`, a no-op outside Ember).
 - **Self-checking debug loop**: after the AI edits files, Ember detects the project type (npm/TypeScript, Python, Cargo, Go, .NET, CMake, Maven, Gradle) and runs compile / test commands. Failures go back to the AI, which retries up to the configured limit.
 - **Rewind**: every coding message takes a snapshot of the workspace with a shadow git repository (your own `.git` is untouched). Restore files, conversation, or both. The Changes panel shows a side-by-side diff per file with one-click revert.
 - **AI Modules**: named assistants with their own instructions, model, effort and permissions, all sharing one conversation.
 - **Discover**: scans CPU, RAM and GPU and recommends local models that fit, with one-click install and progress. Can install Ollama with winget.
+- **Plan usage and context**: the status bar and model picker show how much of each plan's window is used (for example Claude's 5-hour and weekly limits, as reported by Claude Code) with reset times. When a provider refuses a turn because the plan is exhausted, an inline card offers to continue on another signed-in provider or a local model, handing it the conversation so far. The composer shows how full the model's context window is; local models get a 32k context instead of Ollama's 4k default and are condensed automatically near the limit.
 - **GPU memory**: loaded models with an unload button in the status bar; memory is freed on exit.
 - **Long sessions**: older local-model messages are condensed into notes instead of dropped. System tray keeps work running after the window closes. Dark, light or system theme.
 

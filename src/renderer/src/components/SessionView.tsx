@@ -11,7 +11,10 @@ export function SessionView() {
         <div className="col" style={{ alignItems: 'center' }}>
           <Icon name="flame" size={44} className="brand-flame" />
           <h1>Ember</h1>
-          <p className="muted">Chat with local models or your Claude, ChatGPT and Gemini accounts. Open a folder to code.</p>
+          <p className="muted">Chat with local models or your Claude, ChatGPT and Google accounts. Open a folder to code.</p>
+          <p className="muted" style={{ fontSize: 12.5, maxWidth: 520 }}>
+            Ember only talks to the providers' official tools signed in with <em>your</em> plan. It never uses API keys or pay-per-use models, so nothing is billed per message.
+          </p>
           <div className="row">
             <button className="primary" onClick={() => newSession('chat')}>New chat</button>
             <button onClick={() => newSession('code')}>New scratch project</button>

@@ -29,7 +29,9 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
   const current = useStore((s) => s.current)!
   const models = useStore((s) => s.models)
   const cli = useStore((s) => s.cli)
+  const cliLoaded = useStore((s) => s.cliLoaded)
   const cliModels = useStore((s) => s.cliModels)
+  const usage = useStore((s) => s.usage)
   const modules = useStore((s) => s.modules)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -139,8 +141,23 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
   }
 
   const modelName = current.model.model
+  // Context usage from the last reply of the current provider (prompt tokens incl. cache vs the model's window).
+  const ctx = (() => {
+    const st = [...current.messages].reverse().find((m) => m.role === 'assistant' && m.stats?.contextTokens && m.model?.provider === current.model.provider)?.stats
+    if (!st?.contextTokens || !st.contextLimit) return null
+    return { used: st.contextTokens, limit: st.contextLimit, pct: Math.min(100, Math.round((st.contextTokens / st.contextLimit) * 100)) }
+  })()
   const cliOk = (id: string) => cli.find((c) => c.id === id)?.loggedIn === true
-  const signedIn = (['claude', 'codex', 'gemini'] as const).filter(cliOk)
+  // Until the first status check returns, keep every provider listed instead of flashing "not signed in".
+  const signedIn = (['claude', 'codex', 'gemini'] as const).filter((p) => !cliLoaded || cliOk(p))
+  // "Claude — 65% of 5-hour used" in the picker, from what the provider's own tool reported.
+  const usageSuffix = (p: string) => {
+    const u = usage.find((x) => x.provider === p)
+    if (!u) return ''
+    if (u.status === 'limited') return ' — limit reached'
+    const w = u.windows.find((x) => x.utilization != null)
+    return w ? ` — ${w.utilization}% of ${w.label} used` : ''
+  }
 
   return (
     <div className="composer" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
@@ -190,15 +207,15 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
             </optgroup>
             {/* Only providers that are signed in are listed; the Accounts page adds more. */}
             {signedIn.map((p) => (
-              <optgroup key={p} label={PROVIDER_LABEL[p]}>
+              <optgroup key={p} label={PROVIDER_LABEL[p] + usageSuffix(p)}>
                 <option value={p + '|'}>{PROVIDER_LABEL[p]} · default</option>
                 {(cliModels[p] ?? []).map((m) => <option key={p + '|' + m.id} value={p + '|' + m.id}>{PROVIDER_LABEL[p]} · {m.label}</option>)}
               </optgroup>
             ))}
-            {signedIn.length === 0 && <optgroup label="Your accounts"><option value="ollama|" disabled>Sign in on the Accounts page to use Claude, ChatGPT or Google</option></optgroup>}
+            {cliLoaded && signedIn.length === 0 && <optgroup label="Your accounts"><option value="ollama|" disabled>Sign in on the Accounts page to use Claude, ChatGPT or Google</option></optgroup>}
             {current.model.provider !== 'ollama' && (!signedIn.includes(current.model.provider) || (current.model.model && !(cliModels[current.model.provider] ?? []).some((m) => m.id === current.model.model))) && (
               <optgroup label="Current">
-                <option value={current.model.provider + '|' + current.model.model}>{PROVIDER_LABEL[current.model.provider]} · {current.model.model || 'default'}{signedIn.includes(current.model.provider) ? '' : ' (not signed in)'}</option>
+                <option value={current.model.provider + '|' + current.model.model}>{PROVIDER_LABEL[current.model.provider]} · {current.model.model || 'default'}{!cliLoaded ? ' (checking…)' : signedIn.includes(current.model.provider) ? '' : ' (not signed in)'}</option>
               </optgroup>
             )}
           </select>
@@ -217,6 +234,15 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
               <option value="">No module</option>
               {modules.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
+          )}
+          {ctx && (
+            <span
+              className={'ctxmeter' + (ctx.pct >= 90 ? ' err' : ctx.pct >= 75 ? ' warn' : '')}
+              title={`Context window: ${ctx.used.toLocaleString()} of ${ctx.limit.toLocaleString()} tokens in use (${ctx.pct}%).${ctx.pct >= 75 ? (current.model.provider === 'ollama' ? ' Ember condenses older messages automatically near the limit; /compact does it now.' : ' The provider tool compacts its own context automatically.') : ''}`}
+            >
+              <span className="meter"><i style={{ width: ctx.pct + '%' }} /></span>
+              <span>{ctx.pct}% ctx</span>
+            </span>
           )}
           <span className="grow" />
           {busy ? <button onClick={onStop}><Icon name="stop" size={12} /> Stop</button> : <button className="primary" onClick={submit} disabled={!text.trim() && !attachments.length}>Send ↵</button>}
@@ -238,7 +264,7 @@ export function Composer({ busy, onSend, onStop }: { busy: boolean; onSend: (tex
                   <button key={p + m.id} onClick={() => { saveCurrent({ model: { provider: p, model: m.id } }); setModelOpen(false) }}>{PROVIDER_LABEL[p]} · {m.label}</button>
                 ))
               ])}
-              {signedIn.length < 3 && <div className="muted" style={{ fontSize: 12 }}>Sign in to more providers on the Accounts page.</div>}
+              {cliLoaded && signedIn.length < 3 && <div className="muted" style={{ fontSize: 12 }}>Sign in to more providers on the Accounts page.</div>}
             </div>
           </div>
         </div>

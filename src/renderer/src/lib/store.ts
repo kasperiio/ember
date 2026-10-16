@@ -1,6 +1,6 @@
 // Tiny global store (useSyncExternalStore) for app-wide state.
 import { useSyncExternalStore } from 'react'
-import type { AiModule, ApprovalRequest, OllamaModel, OllamaRunning, Participant, Session, SessionSummary, Settings, CliStatus } from '../../../shared/types'
+import type { AiModule, ApprovalRequest, OllamaModel, OllamaRunning, Participant, ProviderUsage, Session, SessionSummary, Settings, CliStatus } from '../../../shared/types'
 import { api } from './api'
 
 export type Page = 'session' | 'discover' | 'accounts' | 'modules' | 'settings'
@@ -14,6 +14,8 @@ export interface State {
   models: OllamaModel[]
   running: OllamaRunning[]
   cli: CliStatus[]
+  /** False until the first cli:status answer arrives (sign-in state unknown). */
+  cliLoaded: boolean
   cliModels: Record<string, { id: string; label: string }[]>
   approvals: ApprovalRequest[]
   busy: Record<string, boolean>
@@ -21,6 +23,7 @@ export interface State {
   ollamaOk: boolean
   terminalRequests: { id: string; cwd: string; cmd: string; title: string }[]
   participants: Record<string, Participant[]>
+  usage: ProviderUsage[]
   dialog: { kind: 'share'; sessionId: string } | { kind: 'join' } | null
 }
 
@@ -33,6 +36,7 @@ let state: State = {
   models: [],
   running: [],
   cli: [],
+  cliLoaded: false,
   cliModels: {},
   approvals: [],
   busy: {},
@@ -40,6 +44,7 @@ let state: State = {
   ollamaOk: false,
   terminalRequests: [],
   participants: {},
+  usage: [],
   dialog: null
 }
 const listeners = new Set<() => void>()
@@ -73,7 +78,7 @@ export async function refreshModels(): Promise<void> {
 }
 export async function refreshCli(): Promise<void> {
   const cli = await api.cli.status()
-  set({ cli })
+  set({ cli, cliLoaded: true })
   const cliModels: State['cliModels'] = {}
   await Promise.all(cli.filter((c) => c.installed).map(async (c) => (cliModels[c.id] = await api.cli.models(c.id).catch(() => []))))
   set({ cliModels })

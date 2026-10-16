@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useStore, refreshCli, requestTerminal, set, get, newSession } from '../lib/store'
 import type { CliStatus } from '../../../shared/types'
+import { resetLabel } from './StatusBar'
 
 const INFO: Record<CliStatus['id'], { title: string; who: string; plan: string; pkg: string; site: string }> = {
   claude: { title: 'Claude', who: 'Anthropic', plan: 'Claude Pro or Max subscription', pkg: 'Claude Code (official installer)', site: 'https://claude.ai' },
@@ -11,6 +12,7 @@ const INFO: Record<CliStatus['id'], { title: string; who: string; plan: string; 
 
 export function Accounts() {
   const cli = useStore((s) => s.cli)
+  const usage = useStore((s) => s.usage)
   const [log, setLog] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -67,6 +69,22 @@ export function Accounts() {
               <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
                 {st?.installed ? `${st.version ?? ''} · ${st.path}` : `Installs ${info.pkg}; no admin rights needed.`}
               </div>
+              {(() => {
+                const u = usage.find((x) => x.provider === id)
+                if (!u || !u.windows.length) return st?.loggedIn === true ? <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Usage appears here after the first message; it is reported by the tool itself, nothing is billed per message.</div> : null
+                return (
+                  <div className="col" style={{ gap: 4, marginBottom: 8 }}>
+                    {u.windows.map((w) => (
+                      <div key={w.label} className="row" style={{ fontSize: 12.5 }}>
+                        <span style={{ width: 110 }}>{w.label}</span>
+                        <span className="progress" style={{ width: 160 }}><i style={{ width: `${w.utilization ?? 0}%`, background: w.status === 'ok' ? undefined : 'var(--warn)' }} /></span>
+                        <span className="muted">{w.utilization != null ? `${w.utilization}% used` : w.status}{w.resetsAt ? ` · ${resetLabel(w.resetsAt)}` : ''}</span>
+                      </div>
+                    ))}
+                    {u.status === 'limited' && <div className="err" style={{ fontSize: 12.5 }}>Plan limit reached. Switch to another provider or wait for the reset.</div>}
+                  </div>
+                )
+              })()}
               <div className="row">
                 {!st?.installed ? (
                   <button className="primary" onClick={() => install(id)} disabled={busy === id}>{busy === id ? 'Installing…' : 'Install tool'}</button>
@@ -94,7 +112,7 @@ export function Accounts() {
         <li>Sign-in opens the provider's own login page in your browser, exactly like running the tool yourself.</li>
         <li>Tokens are stored by the provider tool, never by Ember.</li>
         <li>Codex CLI and cloudflared ship inside Ember (Apache-2.0). Claude Code and Antigravity CLI are installed by their vendors' official installers into your user profile.</li>
-        <li>Claude supports Ember's permission prompts fully. Codex and Antigravity run headless, so in Manual mode actions that need approval are skipped; use Accept edits or Bypass with them.</li>
+        <li>All three providers use Ember's approval prompts in every permission mode: Claude and Codex ask Ember directly, and Antigravity asks through a small approval hook Ember adds to its hooks.json (it does nothing when you run agy yourself).</li>
       </ul>
     </div>
   )
