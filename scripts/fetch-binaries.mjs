@@ -41,16 +41,22 @@ await download('https://raw.githubusercontent.com/cloudflare/cloudflared/master/
 const codexExe = join(bin, 'codex.exe')
 if (!existsSync(codexExe) || force) {
   const rel = await latestRelease('openai/codex')
-  const asset = rel.assets.find((a) => /x86_64-pc-windows-msvc\.exe\.zip$/.test(a.name)) ?? rel.assets.find((a) => /windows.*x86_64.*\.zip$/i.test(a.name))
+  // Exact name: the release also ships codex-app-server-*, codex-command-runner-* etc. with the same suffix.
+  const asset = rel.assets.find((a) => /^codex-x86_64-pc-windows-msvc\.exe\.zip$/.test(a.name))
   if (!asset) throw new Error('No Windows x64 Codex asset in release ' + rel.tag_name + ': ' + rel.assets.map((a) => a.name).join(', '))
   const zip = join(bin, asset.name)
   await download(asset.browser_download_url, zip)
   const tmp = join(bin, 'codex-tmp')
   rmSync(tmp, { recursive: true, force: true })
   execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath "${zip}" -DestinationPath "${tmp}" -Force`], { stdio: 'inherit' })
-  const exe = readdirSync(tmp).find((f) => f.endsWith('.exe'))
+  // The archive also contains helper executables; take the CLI by name, else the largest file.
+  const exes = readdirSync(tmp).filter((f) => f.endsWith('.exe'))
+  const exe = exes.find((f) => /^codex(-x86_64-pc-windows-msvc)?\.exe$/i.test(f)) ?? exes.sort((a, b) => statSync(join(tmp, b)).size - statSync(join(tmp, a)).size)[0]
   if (!exe) throw new Error('No exe inside ' + asset.name)
+  console.log('archive exes:', exes.join(', '), '-> using', exe)
   renameSync(join(tmp, exe), codexExe)
+  // Keep the helper executables (sandbox setup, command runner, code-mode host) next to the CLI.
+  for (const f of exes) if (f !== exe) renameSync(join(tmp, f), join(bin, f))
   rmSync(tmp, { recursive: true, force: true })
   rmSync(zip, { force: true })
   writeFileSync(join(bin, 'codex.version'), rel.tag_name)

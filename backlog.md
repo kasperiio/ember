@@ -12,6 +12,8 @@ Conventions for the worker session:
 
 - [ ] For a few seconds after launch the model picker labels the current provider "(not signed in)" because `cli:status` hasn't returned yet (`cli` is empty in the store). Track a `cliLoaded` flag in `lib/store.ts`; until it is true show "(checking…)" and don't hide providers from the list.
 
+- [ ] Add a `.gitattributes` with `* text=auto eol=lf` (and `*.png binary`) so git stops warning about LF→CRLF conversion on this Windows checkout; renormalize with `git add --renormalize .`.
+
 ## Done
 
 - [x] Remove all emojis from the UI (except the title-bar flame). — New `components/Icon.tsx` (inline stroke SVGs using `currentColor`) replaces every emoji in Sidebar, ChatView header/approval cards, Composer, Message, FileTree (per-type file icons), ShareDialogs, StatusBar (CSS dot for Ollama status), Workspace tabs and the welcome screen (SVG flame in accent colour); `.icon`/`.dot` styles in styles.css. Verified in the app: no emoji in the DOM besides the title-bar flame.
